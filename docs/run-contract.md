@@ -46,6 +46,7 @@ canonical files, not hidden imports.
 | Curate (opt) | `sprite-gen curation` (`serve_curation.py`) + `curation.py` | `frames/` | `curation.json` sidecar |
 | Compose | `compose_sprite_atlas.py` | `frames/` + `curation.json` | `sprite-sheet-alpha.png`, `manifest.json`, `*.report.json` |
 | Engine export (opt) | `sprite-gen export-aseprite` (`sprite_gen/compose/export_aseprite.py`) | composed `manifest.json` + existing atlas | `exports/aseprite.json`, or `exports/aseprite/<state>.json` for Flame |
+| Godot export (opt) | `sprite-gen export-godot` (`sprite_gen/compose/export_godot.py`) | composed `manifest.json` + existing atlas | `exports/godot/sprite-frames.tres` + `sprite-sheet-alpha.png` |
 | Recolor (opt) | `sprite-gen recolor` / `recolor-palette` (`sprite_gen/effects/recolor.py`) | base sheet (default `sprite-sheet-alpha.png`) + recolor spec | `variants/<name>.png`, optional `variants/<name>.manifest.json`, `variants/recolor.report.json` |
 | QA | `preview_animation.py` | `frames/` | `qa/<state>-contact.png`, `qa/<state>.gif` |
 | Inspect | `inspect_sprite_run.py` | `sprite-request.json`, `raw/` or `frames/` | `sprite-inspect.report.json` |

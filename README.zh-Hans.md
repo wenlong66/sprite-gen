@@ -70,7 +70,7 @@ flowchart LR
 | **A · 图集行** | 一张静态图 + 一组状态列表 → `sprite-sheet-alpha.png` + `manifest.json.frame_layout`，并在待机姿势上烘焙 **Breathe** | [run-contract](docs/run-contract.md) · [breathing](docs/breathing.md) |
 | **B · 视频 → 循环** | 一张静态图 → 每个状态一份无缝透明 GIF / WebP / 条带，由 Grok Imagine 驱动动画并按其真实周期裁切 | [video-pipeline](docs/video-pipeline.md) · [video](docs/video.md) |
 | **C · 实用工具** | 一张导入图像或网格表 → 干净的透明切片；一份成品图集 → 可供策展的运行目录 | [sheet-slicing](docs/sheet-slicing.md) · [curation](docs/curation.md) |
-| **D · 后期处理** | 一份成品表 → 确定性配色方案、Aseprite / Phaser / Flame 导出 | [recolor](docs/recolor.md) · [engine-export](docs/engine-export.md) |
+| **D · 后期处理** | 一份成品表 → 确定性配色方案、Godot / Aseprite / Phaser / Flame 导出 | [recolor](docs/recolor.md) · [engine-export](docs/engine-export.md) |
 | **E · 素材工具** | 独立的 PNG 或动画 → 可重复平铺图、投影阴影、运动/接地测量 | [asset-tools](docs/asset-tools.md) |
 | **S · 场景** | 现有素材 + 摆放、相机与灯光 → PNG 帧、MP4/GIF、检查与摆放元数据 | [scene](docs/scene.md) |
 
@@ -132,6 +132,7 @@ sprite-gen unpack-atlas --atlas sheet.png             # 成品图集 → 可供�
 sprite-gen recolor-palette --base <run>/sprite-sheet-alpha.png --out palette.draft.json
 sprite-gen recolor --run-dir <run> --spec recolor.spec.json      # → <run>/variants/
 sprite-gen export-aseprite --run-dir <run>                       # 供 Phaser / Flame 使用的 Aseprite JSON
+sprite-gen export-godot --run-dir <run>                          # Godot 4 动画资源（.tres）+ PNG 图集
 ```
 
 **E · 素材工具** —— 每个都接受现有素材，包括来自其他工具的美术资源。

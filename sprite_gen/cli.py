@@ -10,7 +10,7 @@ from typing import Callable
 from sprite_gen import _modules, gen
 from sprite_gen.background import tile
 from sprite_gen.curate import anchor
-from sprite_gen.compose import compose_atlas, compose_cycle, compose_gif, export_aseprite, export_pngs
+from sprite_gen.compose import compose_atlas, compose_cycle, compose_gif, export_aseprite, export_godot, export_pngs
 from sprite_gen.qa import correction_loop, inspect, preview, score, motion
 from sprite_gen.qa import handed as handed_check
 from sprite_gen.frames import cutout, extract, slice_sheet, unpack_atlas
@@ -253,6 +253,11 @@ COMMANDS: dict[str, tuple[str, Callable[[argparse.ArgumentParser], None], Callab
         "Export the composed atlas as Aseprite-compatible JSON metadata.",
         export_aseprite.add_arguments,
         export_aseprite.run,
+    ),
+    "export-godot": (
+        "Export the composed atlas as a portable Godot 4 SpriteFrames resource and PNG.",
+        export_godot.add_arguments,
+        export_godot.run,
     ),
     "anchor": (
         "Resolve/bake the direction anchor ref from curated truth (or pin which frame is the anchor).",

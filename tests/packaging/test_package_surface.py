@@ -23,6 +23,7 @@ PACKAGE_RUN_MODULES = [
     "compose_gif",
     "correction_loop",
     "export_aseprite",
+    "export_godot",
     "export_pngs",
     "extract",
     "gen",

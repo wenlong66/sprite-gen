@@ -1,6 +1,29 @@
 # Engine export
 
-> Owns: Aseprite-compatible export for Phaser and Flame · Index: [docs/README.md](README.md)
+> Owns: Godot 4 SpriteFrames and Aseprite-compatible export for Phaser and Flame · Index: [docs/README.md](README.md)
+
+## Godot 4
+
+After `compose-atlas`, export a portable animation resource:
+
+```bash
+$SPRITE_GEN_ROOT/.venv/bin/sprite-gen export-godot --run-dir <run-dir>
+```
+
+This writes two files under `<run-dir>/exports/godot/`:
+
+- `sprite-frames.tres` — native Godot 4 `SpriteFrames`, with one animation per state.
+- `sprite-sheet-alpha.png` — a byte-for-byte copy of the composed atlas.
+
+Copy the **whole folder** anywhere inside your Godot project, then assign `sprite-frames.tres` to an `AnimatedSprite2D` node's **Sprite Frames** property (or `AnimatedSprite3D`'s equivalent). Select an animation and play it. The texture path is relative to the resource, so the folder can move without editing `res://` paths. For pixel art, choose **Nearest** in the node's texture filter settings.
+
+The resource preserves animation names, playback order, repeated frames, loop flags and per-frame millisecond durations. Shared atlas cells use the same `AtlasTexture` subresource; no images are re-encoded. Frame durations are converted to Godot's relative units with `duration_ms * fps / 1000`, preserving timing at the exported animation FPS. It reads the composed `manifest.json`, so re-run `compose-atlas` first after changing curation selections, transforms or pixel edits.
+
+Godot 3 resource syntax, scenes and gameplay logic are outside this export. The exporter rejects invalid animation mappings, timing, out-of-bounds rectangles and missing or mismatched PNGs before publishing. Both output files use the pipeline's staged file-set writer; the source atlas and manifest are unchanged.
+
+Format references: [Godot SpriteFrames](https://docs.godotengine.org/en/stable/classes/class_spriteframes.html) and [text resource external references](https://docs.godotengine.org/en/stable/engine_details/file_formats/tscn.html#external-resources).
+
+## Aseprite-compatible JSON
 
 `sprite-gen export-aseprite` describes a composed sprite-gen atlas using the JSON schema consumed by Aseprite loaders. It does not create an editable `.aseprite` source file and it does not re-encode the PNG.
 
@@ -46,11 +69,11 @@ $SPRITE_GEN_ROOT/.venv/bin/sprite-gen export-aseprite --run-dir <run-dir> --form
 
 This writes `exports/aseprite/idle.json`, `walk.json`, and so on. Every file uses local indices beginning at `0`, points to the same atlas PNG, and preserves millisecond frame durations. The relevant behavior is visible in Flame's official [`SpriteAnimation.fromAsepriteData` source](https://github.com/flame-engine/flame/blob/main/packages/flame/lib/src/sprite_animation.dart).
 
-## Limits
+## Aseprite export limits
 
 - The exporter is structurally tested against the fields the loaders consume, but the repository does not run a browser Phaser app or Flutter runtime in CI.
 - `loop` remains in `manifest.json`. Aseprite frame tags carry direction and range but no sprite-gen loop policy, and Flame's Aseprite factory constructs its default looping animation without reading tags.
-- The curation webview is unchanged. This is a post-compose CLI export, not a new webview download button.
+- Engine exports run through the CLI after compose; the curation webview has no engine-export download button.
 - The exporter refuses malformed row mappings and output paths outside the run directory. Split-state files are staged as a complete directory and then published together.
 
 ## Related

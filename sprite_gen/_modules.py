@@ -59,6 +59,7 @@ MODULE_DOMAIN = {
     'compose_gif': 'compose',
     'export_pngs': 'compose',
     'export_aseprite': 'compose',
+    'export_godot': 'compose',
     'breathe': 'effects',
     'anatomy': 'effects',
     'recolor': 'effects',
@@ -111,8 +112,8 @@ PIPELINES: list[dict[str, object]] = [
 TOOL_GROUPS: list[dict[str, object]] = [
     {"key": "C", "name": "utilities", "verbs": ["cutout", "slice-sheet", "unpack-atlas"],
      "chain": "cutout · slice-sheet · unpack-atlas (each stands alone)", "doc": "docs/sheet-slicing.md"},
-    {"key": "D", "name": "post-processing", "verbs": ["recolor", "recolor-palette", "breathe", "export-pngs", "export-aseprite"],
-     "chain": "recolor · breathe · export-pngs · export-aseprite", "doc": "docs/recolor.md"},
+    {"key": "D", "name": "post-processing", "verbs": ["recolor", "recolor-palette", "breathe", "export-pngs", "export-aseprite", "export-godot"],
+     "chain": "recolor · breathe · export-pngs · export-aseprite · export-godot", "doc": "docs/recolor.md"},
     {"key": "E", "name": "asset tools", "verbs": ["background-tile", "shadow", "inspect-motion"],
      "chain": "background-tile · shadow · inspect-motion (independent; no generation required)", "doc": "docs/asset-tools.md"},
 ]
