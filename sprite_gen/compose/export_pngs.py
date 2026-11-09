@@ -30,8 +30,9 @@ from sprite_gen.util.cli_kwargs import namespace_from_kwargs
 from sprite_gen.curate.curation import edit_index, apply_pixel_edits, apply_transform, frame_variant, load_curation, pixel_snap_scale, source_frame_index, state_pixel_ops, state_plan
 from sprite_gen.spec.layout import row_frame_rel, state_frame_total
 from sprite_gen.spec.timing import playback_durations
+from sprite_gen.spec.assets import PNG_ANIMATION_KIND
 from sprite_gen.frames.extract import require_frames_manifest
-from sprite_gen.spec.runio import acquire_run_dir_lock, atomic_save_image, load_request
+from sprite_gen.spec.runio import acquire_run_dir_lock, atomic_save_image, atomic_write_text, load_request
 from sprite_gen.util.console import utf8_streams
 
 
@@ -104,7 +105,7 @@ def _run(args: argparse.Namespace):
                                  "loop": bool(request["states"][state].get("loop", True))}
 
     if animations:
-        (out_dir / "animation.json").write_text(json.dumps({"version": 1, "states": animations}, indent=2) + "\n", encoding="utf-8")
+        atomic_write_text(out_dir / "animation.json", json.dumps({"version": 1, "kind": PNG_ANIMATION_KIND, "states": animations}, indent=2) + "\n")
 
     # carry the original meta.json along so the curated set is self-contained
     source_meta = None

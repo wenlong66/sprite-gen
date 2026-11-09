@@ -58,6 +58,22 @@ Scaling retains the source movement. The transform in `gif-source.json` records 
 
 Native `durations_ms` is authoritative; the imported state's `fps` is a fallback/reference value, not a second timing editor. Curation selection/reordering maps durations through the source index; a clone inherits its source duration. Composition derives final durations and never edits archived source facts. Existing rows without native timing continue to use FPS.
 
+## Shared assets and hold checks
+
+New PNG exports add `kind: sprite-gen-png-animation` to `curated/animation.json`, retaining its existing version, states, ordered files, durations and loop flags. `spec.assets.load_asset` reads this delivery directly, with the same snapshot/fingerprint and `FrameSequence.index_at` timing rules as an atlas. A multi-state delivery needs `--state`; a single state can be inferred. Earlier PNG exports lacking this kind remain usable through their original composed `manifest.json`, or can be re-exported.
+
+```text
+sprite-gen inspect-motion --source <run>/curated/animation.json --state <id>
+sprite-gen inspect-holds --source <run>/manifest.json --state <id> --report <run>/qa/holds.report.json
+sprite-gen inspect-holds --source <run>/curated/animation.json --state <id> --holds <reviewed.holds.json> --gate
+```
+
+Read the final manifest instead of scanning `frames/` or sorting PNG filenames: curation may reorder, delete or clone frames, and `frame-10.png` sorts before `frame-2.png`. Hold indices refer to the final playback sequence, starting at zero. Looping assets are also checked across their seam; a one-shot or an explicit `--frames FROM-TO` range is not. `--state` is valid only with a supported JSON asset manifest.
+
+The holds inspector counts pictures repeated between adjacent sequence entries. A long single-frame duration remains an explicit timing choice and is not automatically a defect. Examine reported repeats; only put a range into a reviewed hold list when its pause is intended, with a reason such as "impact hold". Do not mark every report entry intentional just to pass the gate. `--gate` returns 1 for unlisted holds and 2 when the source cannot be read; neither should be reported as a clean result.
+
+A scene can reference `{"source": "<run>/curated/animation.json", "state": "<id>"}` as an asset. The default `--fill-held auto` interpolates filmed video cuts, while GIF-derived PNG/atlas assets keep their drawn holds and native timing. Do not add `source_cut`/`video_cut` to them or override their FPS to satisfy a scene rate. Place them with the declared bottom-centre canvas anchor unless a semantic root has been established separately.
+
 For edited previews use `compose-gif`; `preview` intentionally displays pre-curation frames. The curation row, comparison playback and zoom editor read native durations. Row GIF download preserves them. The older comparison capture and row video export use a fixed sample rate and refuse native-timing rows rather than silently retiming them. Use PNG/atlas/GIF/Godot/Aseprite exports in this version. Do not use `compose-cycle`, row regeneration, interpolation or video loop repair as a GIF timing editor.
 
 ## Verification

@@ -43,6 +43,7 @@ from PIL import Image
 
 from sprite_gen._deps import np
 from sprite_gen.spec.runio import atomic_write_text
+from sprite_gen.spec.assets import load_asset
 from sprite_gen.util.cli_kwargs import namespace_from_kwargs
 from sprite_gen.util.console import utf8_streams
 from sprite_gen.video import held_fill as held_fill_mod
@@ -399,13 +400,16 @@ def _keyed(files: list[Path], folder: Path, key: str) -> list[Path]:
     return [folder / f.name for f in files]
 
 
-def load(source: Path, *, key: str | None, work: Path, frames: tuple[int, int | None] | None
+def load(source: Path, *, key: str | None, work: Path, frames: tuple[int, int | None] | None,
+         state: str | None = None
          ) -> tuple[list[Image.Image], int, dict[str, Any]]:
-    """The frames of `source` (a folder of PNG frames, a video, or a strip sidecar), keyed by `key` where given: the
+    """The frames of `source` (PNGs, a video, strip or asset manifest), keyed by `key` where given: the
     frames read (`frames` FROM-TO and the one before it), the number of the first, and what was read. A source with no
     frame, or none from FROM on, is nothing to read (`NothingRead`)."""
     source = Path(source).expanduser().resolve()
     meta: dict[str, Any] = {}
+    if state is not None and (source.suffix.lower() != ".json" or source.name.endswith(".strip.json")):
+        raise ValueError("--state is only valid for an atlas or PNG animation manifest")
     if source.is_dir():
         files = sorted(source.glob("*.png"))
         if not files:
@@ -423,6 +427,14 @@ def load(source: Path, *, key: str | None, work: Path, frames: tuple[int, int | 
         first = _window(len(cells), frames, source, "cells")
         hi = frames[1] if frames else None
         return cells[first:(hi + 1 if hi is not None else None)], first, {"kind": "strip", "meta": meta}
+    elif source.suffix.lower() == ".json":
+        if key is not None:
+            raise ValueError("--key: asset frames already carry their alpha")
+        sequence = load_asset(source, state=state)
+        first = _window(len(sequence.frames), frames, source, "frames")
+        hi = frames[1] if frames else None
+        return list(sequence.frames[first:(hi + 1 if hi is not None else None)]), first, {
+            "kind": "asset", "meta": sequence.metadata}
     elif source.suffix.lower() in VIDEO_SUFFIXES:
         files = _video_frames(source, work / "raw")
         kind = "video"
@@ -452,7 +464,7 @@ def _opaque(frames: Sequence[Image.Image]) -> bool:
 
 def read(*, source: Path | None = None, key: str | None = None, box: str | None = None, log: Path | None = None,
          log_figures_: Sequence[str] = (), lists: Sequence[Path] = (), scene: str | None = None,
-         frames: str | None = None, figure: str = "figure") -> dict[str, Any]:
+         frames: str | None = None, figure: str = "figure", state: str | None = None) -> dict[str, Any]:
     """The report of `inspect-holds` (see the module): the source read one of the four ways, its holds listed or not.
     A reading that reads no frame against the frame before raises `NothingRead`, its report `inspected` 0, saying why."""
     ways = [w for w, given in (("--key", key), ("--box", box), ("--log", log)) if given is not None]
@@ -460,6 +472,8 @@ def read(*, source: Path | None = None, key: str | None = None, box: str | None 
         raise ValueError(f"{' and '.join(ways)}: give one way to the figure")
     if (source is None) == (log is None):
         raise ValueError("give --source (frames, a video or a strip) or --log (a log of the cells), one of them")
+    if log is not None and state is not None:
+        raise ValueError("--state requires an atlas or PNG animation --source, not --log")
     if key is not None and key not in KEYS:
         raise ValueError(f"--key {key!r}: one of {', '.join(KEYS)}")
     span = _frames_range(frames)
@@ -486,11 +500,14 @@ def read(*, source: Path | None = None, key: str | None = None, box: str | None 
             count = last - first + 1
         else:
             with tempfile.TemporaryDirectory(prefix="sprite-gen-holds-") as work:
-                loaded, first, what = load(Path(source), key=key, work=Path(work), frames=span)  # type: ignore[arg-type]
+                loaded, first, what = load(Path(source), key=key, work=Path(work), frames=span, state=state)  # type: ignore[arg-type]
             count, size = len(loaded), loaded[0].size
             if what["kind"] == "strip":
                 entries = entries + strip_holds(what["meta"], Path(source))
                 wrap = bool(what["meta"].get("loop", True)) and span is None
+            elif what["kind"] == "asset":
+                wrap = bool(what["meta"].get("loop", True)) and span is None
+                report["state"] = what["meta"].get("state")
             if in_box is not None:
                 figures, same = box_figure(loaded, in_box, name=figure), _same_in_place
             else:
@@ -540,7 +557,8 @@ def _why_none(report: dict[str, Any], first: int, last: int, *, key: str | None,
 
 def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source", type=Path, help="a folder of PNG frames (in name order, the first frame 0), a video "
-                        "(mp4, mov, webm, mkv) or a video-loop strip sidecar (*.strip.json, its cells the frames)")
+                        "(mp4, mov, webm, mkv), a strip sidecar, or an atlas/PNG animation manifest in playback order")
+    parser.add_argument("--state", help="animation state for an atlas or PNG animation manifest")
     way = parser.add_mutually_exclusive_group()
     way.add_argument("--key", choices=KEYS, help="key each frame as video-frames keys a clip, and read the figure by the "
                      "alpha it gives (a clip filmed on a key colour)")
@@ -569,7 +587,7 @@ def run(**kwargs: object) -> int:
     nothing: NothingRead | None = None
     try:
         try:
-            report = read(source=args.source, key=args.key, box=args.box, log=args.log, log_figures_=args.log_figure,
+            report = read(source=args.source, key=args.key, box=args.box, log=args.log, log_figures_=args.log_figure, state=args.state,
                           lists=args.holds, scene=args.scene, frames=args.frames, figure=args.figure)
         except NothingRead as exc:
             if exc.report is None:

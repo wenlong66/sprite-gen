@@ -15,6 +15,7 @@ from sprite_gen.frames import import_gif
 from sprite_gen.frames.extract import heal_run, HEAL_KEPT_STALE
 from sprite_gen.qa import preview
 from sprite_gen.spec.runio import load_request
+from sprite_gen.spec.assets import load_asset
 from sprite_gen.serve.serve_curation import build_run_state
 from sprite_gen.util.gif_utils import gif_report
 
@@ -110,6 +111,84 @@ def test_selected_reordered_cloned_frames_keep_their_own_durations(tmp_path):
     assert pngs["files"] == ["frame-2.png", "frame-1.png", "frame-3.png"]
     assert pngs["durations_ms"] == [40, 160, 160]
     assert pngs["loop"] is True
+    atlas = load_asset(output / "manifest.json", state="walk")
+    standalone = load_asset(output / "curated/animation.json", state="walk")
+    assert standalone.durations == atlas.durations == (0.04, 0.16, 0.16)
+    assert standalone.metadata["loop"] is True
+    assert [frame.tobytes() for frame in standalone.frames] == [frame.tobytes() for frame in atlas.frames]
+    assert [standalone.index_at(t, loop=False) for t in (0, 0.039, 0.04, 0.199, 0.2, 0.359)] == [0, 0, 1, 1, 2, 2]
+
+
+@pytest.mark.parametrize("descriptor", ["manifest.json", "curated/animation.json"])
+def test_holds_check_reads_final_gif_order_and_reviewed_hold_lists(tmp_path, descriptor):
+    source, output = tmp_path / "source.gif", tmp_path / "run"
+    make_gif(source)
+    assert run(source, output, state="attack") == 0
+    write_curation_atomic(output, stamp_curation(output, {"version": 1, "kind": "sprite-gen-curation", "states": {"attack": {
+        "selected": [2, 1, 3], "deleted": [0], "clones": {"3": 1},
+    }}}))
+    assert compose_atlas.run(run_dir=output) == 0
+    assert export_pngs.run(run_dir=output, selected_only=True) == 0
+    args = [sys.executable, "-m", "sprite_gen.cli", "inspect-holds", "--source", str(output / descriptor),
+            "--state", "attack", "--gate"]
+    result = subprocess.run(args, capture_output=True, encoding="utf-8")
+    assert result.returncode == 1, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["frames"] == 3 and report["wrap"] is False
+    assert report["state"] == "attack"
+    assert report["table"]["figure"]["unlistedRuns"][0]["from"] == 2
+    holds = tmp_path / "reviewed.holds.json"
+    holds.write_text(json.dumps({"holds": [{"from": 2, "to": 2, "reason": "approved impact hold"}]}))
+    result = subprocess.run([*args, "--holds", str(holds)], capture_output=True, encoding="utf-8")
+    assert result.returncode == 0, result.stdout + result.stderr
+    report = json.loads(result.stdout)
+    assert report["unlisted"] == 0
+    assert report["table"]["figure"]["listedRuns"][0]["reason"] == "approved impact hold"
+
+
+@pytest.mark.parametrize("loop", [False, True])
+def test_scene_keeps_native_gif_holds_at_exact_boundaries_without_interpolation(tmp_path, loop):
+    from sprite_gen.scene.model import load_scene
+    from sprite_gen.scene.render import Renderer
+
+    source, output = tmp_path / "source.gif", tmp_path / "run"
+    make_gif(source)
+    assert run(source, output, loop="true" if loop else "false") == 0
+    assert export_pngs.run(run_dir=output, selected_only=True) == 0
+    spec = {"kind": "sprite-gen-scene", "version": 1, "canvas": {"width": 32, "height": 32},
+            "fps": 100, "duration": 0.4, "assets": {"actor": {"source": "run/curated/animation.json", "state": "idle"}},
+            "layers": [{"id": "actor", "asset": "actor", "at": [16, 32]}]}
+    scene = tmp_path / "scene.json"
+    scene.write_text(json.dumps(spec))
+
+    def no_interpolation(*args, **kwargs):
+        raise AssertionError("native GIF holds must not call RIFE")
+
+    renderer = Renderer(load_scene(scene), interpolate=no_interpolation)
+    sequence = load_asset(output / "curated/animation.json", state="idle")
+    times = (0, 0.07, 0.08, 0.23, 0.24, 0.27, 0.28, 0.36)
+    expected = [0, 0, 1, 1, 2, 2, 0, 1] if loop else [0, 0, 1, 1, 2, 2, 2, 2]
+    assert [renderer.frame(t, only="actor").tobytes() for t in times] == [sequence.frames[i].tobytes() for i in expected]
+
+
+@pytest.mark.parametrize("loop", [False, True])
+def test_manifest_holds_wrap_follows_gif_playback_policy_and_selected_range(tmp_path, loop):
+    from sprite_gen.qa.holds import read
+
+    source, output = tmp_path / "source.gif", tmp_path / "run"
+    make_gif(source)
+    assert run(source, output, loop="true" if loop else "false") == 0
+    write_curation_atomic(output, stamp_curation(output, {"version": 1, "kind": "sprite-gen-curation", "states": {"idle": {
+        "selected": [0, 1, 3], "deleted": [2], "clones": {"3": 0},
+    }}}))
+    assert compose_atlas.run(run_dir=output) == 0
+    report = read(source=output / "manifest.json", state="idle")
+    assert report["wrap"] is loop
+    assert report["unlisted"] == (1 if loop else 0)
+    if loop:
+        assert report["table"]["figure"]["unlistedRuns"][0]["from"] == 0
+    partial = read(source=output / "manifest.json", state="idle", frames="1-2")
+    assert partial["wrap"] is False and partial["unlisted"] == 0
 
 
 @pytest.mark.parametrize("durations", [None, [80], [80, 0, 40], [80, True, 40], [80, 1.5, 40]])

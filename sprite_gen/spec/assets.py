@@ -23,6 +23,8 @@ from PIL import Image
 # An external asset descriptor's kind: ordered frame files with their durations (`effects.shadow` writes one), read
 # by `load_asset`.
 ASSET_KIND = "sprite-gen-asset"
+# The ordered, timed PNG delivery written by export-pngs for native-timing rows.
+PNG_ANIMATION_KIND = "sprite-gen-png-animation"
 # The video-set direction sheet's kind: `video-set-sheet` writes it (`set_sheet.KIND` is this name, as set_sheet
 # imports this module) and `load_asset` reads a descriptor that says it as one.
 SET_SHEET_KIND = "sprite-gen-video-set-sheet"
@@ -320,6 +322,24 @@ def _load_asset(source, snapshot, *, state=None, fps=None, anchor=None):
                     raise ValueError("each asset frame requires file and duration")
                 frames.append(snapshot.image((source.parent / entry["file"]).resolve()))
                 durations.append(finite(entry.get("duration"), "frame duration", positive=True))
+        elif data.get("kind") == PNG_ANIMATION_KIND:
+            if data.get("version") != 1:
+                raise ValueError("PNG animation requires version 1")
+            state = _choose(data.get("states"), state)
+            row = data["states"][state]
+            if not isinstance(row, dict):
+                raise ValueError("PNG animation state must be an object")
+            files, delays = row.get("files"), row.get("durations_ms")
+            if (not isinstance(files, list) or not files or any(not isinstance(p, str) or not p for p in files)
+                    or not isinstance(delays, list) or len(files) != len(delays)
+                    or any(type(ms) is not int or ms <= 0 for ms in delays)):
+                raise ValueError("PNG animation requires ordered files and one positive integer duration_ms per frame")
+            loop = row.get("loop", True)
+            if not isinstance(loop, bool):
+                raise ValueError("PNG animation loop must be a boolean")
+            frames = [snapshot.image((source.parent / file).resolve()) for file in files]
+            durations = [ms / 1000 for ms in delays]
+            meta.update(state=state, loop=loop)
         elif "frame_layout" in data:
             layout = data["frame_layout"]
             state = _choose(layout.get("rows"), state)

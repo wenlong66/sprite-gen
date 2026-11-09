@@ -41,6 +41,7 @@ Supported inputs:
 |---|---|
 | A static PNG | One frame; default duration one second |
 | An external `sprite-gen-asset` descriptor | Explicit ordered frame durations in seconds |
+| Native-timing PNG delivery `curated/animation.json` (`sprite-gen-png-animation`) | Explicit ordered filenames and integer `durations_ms`; preserves each state's loop flag, with `--state` for multiple states |
 | `video-loop` output `name.strip.json` | Reads matching `name.strip.png`; `frames`, `w`, `h`, `delay_ms` define the strip |
 | Runtime atlas `manifest.json` | Reads `sprite_sheet_alpha`, `frame_layout.rows` rectangles and `animation.rows` timing; multi-state atlases require `--state` |
 
@@ -121,9 +122,15 @@ sprite-gen inspect-holds --log cells.jsonl --log-figure hero --log-figure figure
 
 # A cut, its own intended holds listed.
 sprite-gen inspect-holds --source loop/walk.strip.json --gate
+
+# The final curated GIF sequence, from the atlas or standalone PNG delivery.
+sprite-gen inspect-holds --source run/manifest.json --state attack --report run/qa/holds.report.json
+sprite-gen inspect-holds --source run/curated/animation.json --state attack --holds reviewed.holds.json --gate
 ```
 
-`inspect-holds` counts, figure by figure, the frames on which a figure shows the picture it showed on the frame before: on screen it stands still for a frame and then goes on. It reads a delivery whatever made it: a cut, clips joined into one move, a scene rendered frame by frame. Frames are numbered from 0 in the order they are read (a folder's PNGs in name order, a video's frames, a strip's cells); `--frames FROM-TO` reads those frames and the one before `FROM`, to compare with. Nothing is changed.
+`inspect-holds` counts, figure by figure, the frames on which a figure shows the picture it showed on the frame before: on screen it stands still for a frame and then goes on. It reads a delivery whatever made it: a cut, clips joined into one move, a scene rendered frame by frame. Frames are numbered from 0 in the order they are read (a folder's PNGs in name order, a video's frames, a strip's cells, or a shared asset manifest's declared playback order); `--frames FROM-TO` reads those frames and the one before `FROM`, to compare with. Nothing is changed.
+
+JSON assets are read through `spec.assets.load_asset`, with optional `--state`. Their loop flag determines whether the wrap is checked, except when an explicit range is given. This keeps the final selection, clones and ordering of a GIF-derived atlas or PNG animation. A longer native frame duration is a timed hold, not an extra repeated frame for this check. Inspect reported adjacent repeats before listing them as intentional; `--gate` is appropriate only once those intended holds have been reviewed.
 
 The figure is read one of four ways:
 

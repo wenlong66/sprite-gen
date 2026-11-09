@@ -1,5 +1,5 @@
 ---
-name: gif2dsprite
+name: sprite-gen-gif
 description: Create game sprite animations from model-generated or supplied animated GIFs. Use when the user chooses GIF generation or asks to turn a GIF into transparent frames, a sprite atlas, Godot SpriteFrames, or Aseprite JSON. Preserve frame timing, character identity and motion; reuse sprite-gen for decoding, cleanup, curation and export. Ordinary static images and video clips use their existing workflows.
 ---
 
@@ -9,7 +9,7 @@ One accepted character reference establishes identity. One GIF supplies one acti
 
 ## Engine and scope
 
-Use the sprite-gen checkout specified by the user, `SPRITE_GEN_ROOT`, or the current workspace. Run its `.venv/Scripts/sprite-gen.exe` on Windows or `.venv/bin/sprite-gen` on macOS/Linux; a configured `sprite-gen` console command is also suitable. Check `import-gif --help` once. If that verb is missing, report that this skill needs the GIF-enabled engine; do not install an unrelated similarly named package or use an arbitrary global Python.
+Use the sprite-gen checkout specified by the user, `SPRITE_GEN_ROOT`, or the current workspace. Run its `.venv/Scripts/sprite-gen.exe` on Windows or `.venv/bin/sprite-gen` on macOS/Linux; a configured `sprite-gen` console command is also suitable. Check `import-gif --help` and `inspect-holds --help` once; the latter must support `--state` for final-manifest QA. If those capabilities are missing, report that this skill needs the updated GIF-enabled engine; do not install an unrelated similarly named package or use an arbitrary global Python.
 
 This skill owns explicit GIF requests even if a general character skill normally routes motion to video. It does not make a static image tool support animation. No API key or paid route is implied by the presence of this skill.
 
@@ -26,10 +26,12 @@ Read [generation.md](references/generation.md) when making a new GIF. Read [proc
 7. **Review motion and rhythm.** Watch at native timing. A walk needs leg alternation and a complete gait cycle; an attack needs readable anticipation, impact and recovery. View the loop seam or the full one-shot ending. A still bobbing is not a walk. Holds can be intentional: no default interpolation, near-duplicate deletion, reversed recovery or ping-pong gait. Source-art defects require a corrected take; cleanup defects return to import with corrected parameters in a new run.
 8. **Curate if needed.** Use the project's curation UI for selection, ordering, clones, transforms or pixel edits. Native hold times follow their source frames. Its speed selector changes review speed only. Export the row GIF to check edited motion; `preview` is the pre-curation contact-sheet aid. Native timing has no FPS stepper; comparison capture and WebM/MP4 retiming are outside this version.
 9. **Compose and export.** Run `compose-atlas`, `compose-gif`, and `export-pngs --selected-only`. Add `export-godot` or `export-aseprite` when requested. Recompose after curation. Deliver the baked PNGs under `curated/`, not the pre-curation `frames/`. The final `manifest.json` owns engine frame order and durations.
-10. **Verify and report.** Check exported frame/duration counts, positive holds, total time, runtime loop flag and atlas bounds. For a GIF re-encode, identical adjacent frames may merge; compare timed playback and total duration rather than encoded frame count alone. Report numerical checks separately from visual review. Never call an unseen animation accepted.
+10. **Verify and report.** Check exported frame/duration counts, positive holds, total time, runtime loop flag and atlas bounds. Use `inspect-holds --source <run>/manifest.json --state <id>` to read the final curated sequence, and `inspect-motion` for timing evidence. Review unexpected repeated pictures; use `--holds` and `--gate` only with an intentional-hold list justified by visual review. A long native frame duration is not itself an unwanted repeated picture. For a GIF re-encode, identical adjacent frames may merge; compare timed playback and total duration rather than encoded frame count alone. Report numerical checks separately from visual review. Never call an unseen animation accepted.
 
 ## Acceptance and delivery
 
 Deliver the atlas, runtime manifest, selected transparent PNGs, native-speed GIF, contact sheet, requested engine export, original GIF and provenance. Quote actual frame count, unique pictures, total duration, canvas size and loop mode. Include every import warning and any visual issue that remains. If playback cannot be viewed, say motion remains unverified.
 
 An import's `ok: true` means processing succeeded; `status: needs-visual-review` is deliberately not an artistic approval. GIF palette/alpha limitations cannot be recovered by converting to PNG. Keep original and derived assets separate and retain the previous accepted take.
+
+The PNG delivery's `curated/animation.json` is a shared `sprite-gen-png-animation` asset: it can be loaded by `inspect-motion`, `inspect-holds`, shadows or a scene with the chosen state and native durations. The scene renderer treats GIF assets as drawn frames, preserving their holds even when its video interpolation default is enabled. See [processing.md](references/processing.md#shared-assets-and-hold-checks).

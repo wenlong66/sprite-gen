@@ -4,7 +4,7 @@ This document owns the conversation flow. `sprite_gen/workflow/catalog.py` owns 
 
 ## Start with the user's request
 
-Explicit GIF animation requests use [gif2dsprite](../skills/gif2dsprite/SKILL.md).
+Explicit GIF animation requests use [sprite-gen-gif](../skills/sprite-gen-gif/SKILL.md).
 That route checks the host's GIF capabilities or adopts a supplied GIF, then imports
 native frame timing. It does not ask the image-row/video motion-method question.
 

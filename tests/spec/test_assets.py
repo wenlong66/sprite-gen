@@ -76,6 +76,38 @@ def test_png_single_frame_defaults_to_one_second_and_bottom_centre(tmp_path):
         load_asset(source, state="walk")
 
 
+@pytest.mark.parametrize("fault", ["version", "no-state", "unknown-state", "files", "count", "zero", "fraction", "loop", "missing"])
+def test_invalid_png_animation_descriptor_is_refused(tmp_path, fault):
+    Image.new("RGBA", (8, 8), "red").save(tmp_path / "frame.png")
+    row = {"files": ["frame.png"], "durations_ms": [80], "loop": False}
+    data = {"version": 1, "kind": assets.PNG_ANIMATION_KIND, "states": {"idle": row}}
+    state = None
+    if fault == "version":
+        data["version"] = 2
+    elif fault == "no-state":
+        data["states"]["walk"] = row
+    elif fault == "unknown-state":
+        state = "missing"
+    elif fault == "files":
+        row["files"] = [False]
+    elif fault == "count":
+        row["durations_ms"] = [80, 120]
+    elif fault == "zero":
+        row["durations_ms"] = [0]
+    elif fault == "fraction":
+        row["durations_ms"] = [80.5]
+    elif fault == "loop":
+        row["loop"] = "false"
+    elif fault == "missing":
+        row["files"] = ["missing.png"]
+    path = tmp_path / "animation.json"
+    path.write_text(json.dumps(data))
+    original = path.read_bytes()
+    with pytest.raises((ValueError, FileNotFoundError)):
+        load_asset(path, state=state)
+    assert path.read_bytes() == original
+
+
 def test_descriptor_reads_ordered_frames_durations_anchor_and_every_file_hash(tmp_path):
     source = descriptor(tmp_path, anchor=[12, 38], durations=(0.05, 0.15, 0.1, 0.1, 0.4))
     seq = load_asset(source)

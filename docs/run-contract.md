@@ -55,7 +55,7 @@ canonical files, not hidden imports.
 | GIF export | `compose_sprite_gif.py`, `gif_utils.py` | selected frames | clean transparent GIF into `exports/` |
 | Selected cycle | `compose_selected_cycle.py` | `curation.json` / `--frames` | selected-cycle manifest + QA |
 | Inverse / import | `unpack_atlas_run.py` | finished atlas **or** `--pngs-dir` | curator-ready run dir (§4) |
-| GIF import | `sprite-gen import-gif` | animated GIF + optional accepted base | new run with complete RGBA frames, native `states.<state>.durations_ms`, source archive and visual-review report ([skill](../skills/gif2dsprite/SKILL.md)) |
+| GIF import | `sprite-gen import-gif` | animated GIF + optional accepted base | new run with complete RGBA frames, native `states.<state>.durations_ms`, source archive and visual-review report ([skill](../skills/sprite-gen-gif/SKILL.md)) |
 | Export stills | `export_curated_pngs.py` | curated `frames/` | named PNGs under `curated/` |
 | Chroma guard | `scripts/dev/check_visible_magenta.py` | screenshot | leakage warning |
 

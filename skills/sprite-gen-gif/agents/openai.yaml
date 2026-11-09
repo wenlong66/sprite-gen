@@ -1,0 +1,4 @@
+interface:
+  display_name: "Sprite Gen GIF"
+  short_description: "Create game sprites from GIFs with native frame timing"
+  default_prompt: "Use $sprite-gen-gif to create a game animation from my reference or GIF, preserving its motion and frame timing."
