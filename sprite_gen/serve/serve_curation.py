@@ -150,6 +150,7 @@ class Wire:
     PIXEL_SCALE = "pixelScale"
     REFS = "refs"
     FPS = "fps"
+    DURATIONS_MS = "durationsMs"
     LOOP = "loop"
     ACTION = "action"
     REQUEST_FRAMES = "requestFrames"
@@ -644,6 +645,7 @@ def _build_run_state_impl(run_dir: Path) -> dict:
                 Wire.PIXEL_SCALE: state_scale,
                 Wire.REFS: _state_refs(run_dir, state, request, anchor_views),
                 Wire.FPS: int(entry.get("fps", 6)),
+                **({Wire.DURATIONS_MS: entry["durations_ms"]} if "durations_ms" in entry else {}),
                 Wire.LOOP: bool(entry.get("loop", True)),
                 Wire.ACTION: entry.get("action", ""),
                 Wire.REQUEST_FRAMES: frame_count,
@@ -1626,6 +1628,9 @@ class CurationHandler(BaseHTTPRequestHandler):
                     request = load_request(self.run_dir)
                     if state not in request.get("states", {}):
                         self._send_json({Wire.ERROR: f"unknown state: {state}"}, 400)
+                        return
+                    if "durations_ms" in request["states"][state]:
+                        self._send_json({Wire.ERROR: "This animation preserves native GIF frame timing; use the preview speed control."}, 400)
                         return
                     request["states"][state]["fps"] = fps
                     # 쓰기도 게이트 경유 — fps 편집이 디스크 스키마를 바꾸지 않는다.

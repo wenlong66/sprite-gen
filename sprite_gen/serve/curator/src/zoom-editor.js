@@ -1103,10 +1103,11 @@ function openZoom(stateName, idx, keepWidth) {
     const tickLoop = () => {
       bm.tick += 1;
       renderTick();
-      const live = run.states.find((s) => s.name === stateName);
-      const fps = (live && live.fps) || 6;
       const speed = (previews[stateName] && previews[stateName].speed) || 1;
-      bm.timer = setTimeout(tickLoop, Math.max(40, 1000 / Math.max(0.1, fps * speed)));
+      const play = playList(stateName);
+      const interval = frameDurationMs(stateName, play[bm.tick % play.length]) / speed;
+      const live = run.states.find((s) => s.name === stateName);
+      bm.timer = setTimeout(tickLoop, live && live.durationsMs ? interval : Math.max(40, interval));
     };
     tickLoop();
 

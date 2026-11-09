@@ -21,6 +21,7 @@ from PIL import Image
 from sprite_gen.util.cli_kwargs import namespace_from_kwargs
 from sprite_gen.frames.extract import require_frames_manifest
 from sprite_gen.spec.runio import REQUEST_FILENAME, load_request, read_guard
+from sprite_gen.spec.timing import frame_durations
 from sprite_gen.util.gif_utils import delay_ticks_to_duration_ms, save_clean_gif
 from sprite_gen.util.console import utf8_streams
 
@@ -112,13 +113,14 @@ def _run_guarded(args, run_dir):
         duration = (
             delay_ticks_to_duration_ms(args.delay_ticks)
             if args.delay_ticks
-            else max(1, round(1000 / fps))
+            else (frame_durations(state_meta[state], len(frames))
+                  if "durations_ms" in state_meta.get(state, {}) else max(1, round(1000 / fps)))
         )
         save_clean_gif(
             frames,
             qa_dir / f"{state}.gif",
             duration_ms=duration,
-            loop=0 if loop else 1,
+            loop=0 if loop else None,
         )
         summary.append(
             {
@@ -126,7 +128,7 @@ def _run_guarded(args, run_dir):
                 "ok": True,
                 "frames": len(frames),
                 "fps": fps,
-                "delay_ticks": round(duration / 10),
+                "delay_ticks": [round(value / 10) for value in duration] if isinstance(duration, list) else round(duration / 10),
                 "loop": loop,
             }
         )

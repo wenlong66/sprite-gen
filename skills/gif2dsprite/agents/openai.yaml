@@ -1,0 +1,4 @@
+interface:
+  display_name: "GIF to 2D Sprite"
+  short_description: "Create game sprites from GIFs with native frame timing"
+  default_prompt: "Use $gif2dsprite to create a game animation from my reference or GIF, preserving its motion and frame timing."

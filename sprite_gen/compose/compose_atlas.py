@@ -15,6 +15,7 @@ from sprite_gen.util.cli_kwargs import namespace_from_kwargs
 from sprite_gen.effects.breathe import anatomy_report, fit_breathe_pattern, phase_frame, resolve_anatomy
 from sprite_gen.curate.curation import apply_pixel_edits, apply_transform, edit_index, frame_variant, load_curation, pixel_snap_scale, source_frame_index, state_breathe, state_pixel_ops, state_plan
 from sprite_gen.spec.layout import row_frame_rel, state_frame_total
+from sprite_gen.spec.timing import playback_durations
 from sprite_gen.frames.extract import HEAL_HEALED, HEAL_NOTES, heal_run, require_frames_manifest
 from sprite_gen.spec.runio import acquire_run_dir_lock, atomic_save_image, atomic_write_text, load_request
 from sprite_gen.spec.subject import default_min_used_pixels
@@ -191,18 +192,14 @@ def _run(args: argparse.Namespace):
             cells.append({"state": state, "frame": frame_index, "nontransparent_pixels": nontransparent, **rect})
 
         frame_layout["rows"][state] = frames
-        # durations_ms: 프레임별 표시 시간 계약 (지금은 fps 등간격 — 프레임별 편집
-        # UI 가 생기면 여기만 비등간격으로 채워진다). 소비자는 이 배열이 있으면
-        # fps 대신 이것을 따른다.
-        duration_ms = max(1, round(1000.0 / (float(entry.get("fps", 6)) or 6.0)))
+        # Imported native timing follows each source frame through selection and cloning.
+        # Rows without native timing retain their existing uniform-FPS contract.
+        durations_ms = playback_durations(request, state, [index for index, _phase in positions], curation)
         animation["rows"][state] = {
             "row": row_index,
             "frames": len(positions),
             "fps": int(entry.get("fps", 6)),
-            # 프레임별 지속시간은 프레임 복제가 담당한다 (maintainer 확정 2026-07-18 —
-            # 복제는 아틀라스 셀 공유라 부하 0; per-frame duration 이중 진실 금지).
-            # 전체 속도는 state fps 하나로 조정한다.
-            "durations_ms": [duration_ms] * len(positions),
+            "durations_ms": durations_ms,
             "loop": bool(entry.get("loop", True)),
             "frame_variant": variant,
         }

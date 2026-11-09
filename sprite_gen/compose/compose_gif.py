@@ -18,6 +18,7 @@ from sprite_gen.util.cli_kwargs import namespace_from_kwargs
 from sprite_gen.effects.breathe import anatomy_report, bake_breathe_sequence
 from sprite_gen.curate.curation import apply_pixel_edits, apply_transform, edit_index, frame_variant, load_curation, pixel_snap_scale, source_frame_index, state_breathe, state_pixel_ops, state_plan
 from sprite_gen.spec.layout import row_frame_rel, state_frame_total
+from sprite_gen.spec.timing import playback_durations
 from sprite_gen.frames.extract import require_frames_manifest
 from sprite_gen.qa.preview import flatten
 from sprite_gen.spec.runio import read_guard, load_request
@@ -148,13 +149,15 @@ def _run_dir_mode_guarded(args, run_dir):
             images = [im.resize((im.width * scale, im.height * scale), Image.Resampling.NEAREST)
                       for im in images]
         out_path = out_root / f"{state}.gif"
-        duration_ms = max(1, round(1000.0 / fps))
-        save_clean_gif(images, out_path, duration_ms=duration_ms, loop=args.loop_count, alpha_threshold=args.alpha_threshold)
+        durations = playback_durations(request, state, ordered, curation)
+        loop_count = args.loop_count if args.loop_count is not None else (0 if spec.get("loop", True) else None)
+        save_clean_gif(images, out_path, duration_ms=durations, loop=loop_count, alpha_threshold=args.alpha_threshold)
         export_entry = {
             "state": state,
             "output": str(out_path),
             "frames": len(images),
             "fps": fps,
+            "durations_ms": durations,
             "loop": bool(spec.get("loop", True)),
             "gif_report": gif_report(out_path),
         }
@@ -194,7 +197,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--out-dir", type=Path, help="output dir for --run-dir mode (default <run-dir>/exports)")
     parser.add_argument("--output", type=Path, help="output GIF (required unless --run-dir)")
     parser.add_argument("--delay-ticks", type=int, default=17, help="GIF delay in 1/100 second ticks")
-    parser.add_argument("--loop-count", type=int, default=0, help="0 means infinite loop")
+    parser.add_argument("--loop-count", type=int, help="0 means infinite; omitted uses the run's loop flag (standalone: infinite)")
     parser.add_argument("--contact-output", type=Path)
     parser.add_argument("--manifest-output", type=Path)
     parser.add_argument("--alpha-threshold", type=int, default=8)
@@ -219,7 +222,7 @@ def _run(args: argparse.Namespace):
         [frame for _number, _path, frame in frames],
         output,
         duration_ms=duration_ms,
-        loop=args.loop_count,
+        loop=0 if args.loop_count is None else args.loop_count,
         alpha_threshold=args.alpha_threshold,
     )
 

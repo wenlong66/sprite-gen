@@ -3860,6 +3860,9 @@ def heal_run(run_dir: Path | str) -> dict[str, Any]:
     frozen_kept = []
     for row in manifest.get("rows", []):
         state = row.get("state")
+        if row.get("method") == "gif":
+            # GIF decoding owns these frames; the image-row extractor cannot rederive them.
+            continue
         if state not in request.get("states", {}) or row.get("engine_revision") == current:
             continue
         if state in frozen:

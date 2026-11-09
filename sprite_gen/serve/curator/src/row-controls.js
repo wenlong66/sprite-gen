@@ -98,6 +98,12 @@ function makeFpsStepper(stateName) {
   const plus = document.createElement("button");
   plus.type = "button";
   plus.textContent = "+";
+  if (st && st.durationsMs) {
+    label.textContent = `${st.durationsMs.reduce((a, b) => a + b, 0)} ms`;
+    wrap.title = "Original GIF frame timing; the preview speed control changes only playback.";
+    wrap.appendChild(label);
+    return wrap;
+  }
   const apply = async (next) => {
     const clamped = Math.max(1, Math.min(30, next));
     if (!st || clamped === st.fps) return;

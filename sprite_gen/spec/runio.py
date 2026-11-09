@@ -1013,6 +1013,12 @@ def load_request(run_dir: Path) -> dict:
     디스크 스키마 이관은 사용자가 명시적으로 부르는 단일 writer 에서만 원자적으로 한다:
     `migrate_request_file()` / `sprite-gen migrate-request <run-dir> --apply`."""
     path, request, retired = _read_request_document(run_dir)
+    # Native imported timing must remain aligned with the physical source frames.
+    from sprite_gen.spec.layout import state_frame_total
+    from sprite_gen.spec.timing import frame_durations
+    for state, spec in request.get("states", {}).items():
+        if "durations_ms" in spec:
+            frame_durations(spec, state_frame_total(request, state))
     if retired and str(path) not in _RETIRED_KEY_NOTICED:
         _RETIRED_KEY_NOTICED.add(str(path))
         print(f"[request] retired key(s) in {path}: {', '.join(retired)}. They are read as "

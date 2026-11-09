@@ -13,7 +13,7 @@ from sprite_gen.curate import anchor
 from sprite_gen.compose import compose_atlas, compose_cycle, compose_gif, export_aseprite, export_godot, export_pngs
 from sprite_gen.qa import correction_loop, inspect, preview, score, motion
 from sprite_gen.qa import handed as handed_check
-from sprite_gen.frames import cutout, extract, slice_sheet, unpack_atlas
+from sprite_gen.frames import cutout, extract, import_gif, slice_sheet, unpack_atlas
 from sprite_gen.gen import gen_set, logo, pixel_draw, prepare, video
 from sprite_gen.video import batch as video_batch
 from sprite_gen.video import canvas as video_canvas
@@ -114,7 +114,7 @@ def _add_compose_gif(p: argparse.ArgumentParser) -> None:
     p.add_argument("--out-dir", type=Path)
     p.add_argument("--output", type=Path)
     p.add_argument("--delay-ticks", type=int, default=17)
-    p.add_argument("--loop-count", type=int, default=0)
+    p.add_argument("--loop-count", type=int)
     p.add_argument("--contact-output", type=Path)
     p.add_argument("--manifest-output", type=Path)
     p.add_argument("--alpha-threshold", type=int, default=8)
@@ -243,6 +243,7 @@ COMMANDS: dict[str, tuple[str, Callable[[argparse.ArgumentParser], None], Callab
         compose_cycle.run,
     ),
     "compose-gif": ("Compose selected sprite frames into a clean transparent GIF.", _add_compose_gif, compose_gif.run),
+    "import-gif": ("Import complete GIF frames and native timing into a new sprite run.", import_gif.add_arguments, import_gif.run),
     "unpack-atlas": (
         "Unpack a composed sprite sheet back into a curator-ready run directory.",
         _add_unpack_atlas,

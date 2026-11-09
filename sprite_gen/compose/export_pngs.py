@@ -29,6 +29,7 @@ from PIL import Image
 from sprite_gen.util.cli_kwargs import namespace_from_kwargs
 from sprite_gen.curate.curation import edit_index, apply_pixel_edits, apply_transform, frame_variant, load_curation, pixel_snap_scale, source_frame_index, state_pixel_ops, state_plan
 from sprite_gen.spec.layout import row_frame_rel, state_frame_total
+from sprite_gen.spec.timing import playback_durations
 from sprite_gen.frames.extract import require_frames_manifest
 from sprite_gen.spec.runio import acquire_run_dir_lock, atomic_save_image, load_request
 from sprite_gen.util.console import utf8_streams
@@ -66,6 +67,7 @@ def _run(args: argparse.Namespace):
 
     states = [args.state] if args.state else list(request["states"])
     written = []
+    animations = {}
     for state in states:
         if state not in request["states"]:
             raise SystemExit(f"unknown state: {state}")
@@ -75,6 +77,7 @@ def _run(args: argparse.Namespace):
         labels = labels_by_state.get(state, [])
         multi_state = len(states) > 1
         variant = frame_variant(curation, state)
+        state_files = []
         for index in indices:
             # 복제 인스턴스는 원본 프레임 파일을 읽는다 (변형/픽셀편집은 인스턴스 인덱스)
             src_index = source_frame_index(curation, state, index, default_count)
@@ -94,6 +97,14 @@ def _run(args: argparse.Namespace):
             dest = out_dir / filename
             atomic_save_image(baked, dest)
             written.append(str(dest))
+            state_files.append(filename)
+        if "durations_ms" in request["states"][state]:
+            animations[state] = {"files": state_files,
+                                 "durations_ms": playback_durations(request, state, list(indices), curation),
+                                 "loop": bool(request["states"][state].get("loop", True))}
+
+    if animations:
+        (out_dir / "animation.json").write_text(json.dumps({"version": 1, "states": animations}, indent=2) + "\n", encoding="utf-8")
 
     # carry the original meta.json along so the curated set is self-contained
     source_meta = None

@@ -65,6 +65,9 @@ async function downloadRowVideo(stateName, fmt) {
   const play = playList(stateName);
   if (!play.length) throw new Error("empty sequence");
   const st = run.states.find((s) => s.name === stateName);
+  if (st && st.durationsMs) {
+    throw new Error("Use GIF or engine export to preserve native frame timing; video retiming is not supported here.");
+  }
   const [cellW, cellH] = cellDims(stateName);
   const bcfg = stateBreathe(stateName);
   const pattern = bcfg ? breathePattern(bcfg, play.length) : [];

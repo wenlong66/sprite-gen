@@ -87,6 +87,7 @@ CURATOR_READS: dict[str, tuple[str, ...]] = {
     W.PIXEL_SCALE: (_member("st", W.PIXEL_SCALE),),
     W.REFS: (_member("state", W.REFS),),
     W.FPS: (_member("state", W.FPS),),
+    W.DURATIONS_MS: (_member("state", W.DURATIONS_MS),),
     W.LOOP: (_member("state", W.LOOP),),
     W.ACTION: (_member("state", W.ACTION),),
     W.REQUEST_FRAMES: (_member("state", W.REQUEST_FRAMES),),

@@ -557,6 +557,14 @@ function playList(stateName) {
   return e.order.filter((idx) => e.sel.has(idx));
 }
 
+// Imported durations belong to source frames, including linked or unlinked clones.
+function frameDurationMs(stateName, index) {
+  const state = run.states.find((s) => s.name === stateName);
+  const source = cloneSrc(stateName, index);
+  const duration = state && state.durationsMs && state.durationsMs[source === null ? index : source];
+  return duration || 1000 / Math.max(0.1, (state && state.fps) || 6);
+}
+
 // ── 베이스 = 줌 모달과 같은 컴포넌트 (maintainer 지시 2026-07-17 "같은 컴포넌트를 쓰라") ──
 // 가상 상태 "__base__" 로 줌 모달을 연다. 편집 공간 = 검출 격자의 논리 해상도
 // (예: 28×48) — 프레임과 동일한 조작감. 저장은 사이드카가 아니라 명시 버튼으로

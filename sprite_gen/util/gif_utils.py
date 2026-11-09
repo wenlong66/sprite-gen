@@ -64,7 +64,7 @@ def save_clean_gif(
     frames: Iterable[Image.Image],
     output_path: Path,
     *,
-    duration_ms: int,
+    duration_ms: int | list[int],
     loop: int | None = 0,
     alpha_threshold: int = 8,
     opaque: bool = False,
@@ -74,8 +74,9 @@ def save_clean_gif(
     `loop=0` means infinite loop in GIF/Pillow terminology.
     `opaque=True` expects frames already composited onto their preview background.
     """
-    if duration_ms <= 0:
-        raise ValueError("duration_ms must be positive")
+    delays = duration_ms if isinstance(duration_ms, list) else [duration_ms]
+    if not delays or any(type(value) is not int or value <= 0 for value in delays):
+        raise ValueError("duration_ms must contain positive integer milliseconds")
     if opaque:
         prepared = [_prepare_opaque_frame(frame) for frame in frames]
         # Restore-to-background depends on palette indices that can change per
@@ -86,6 +87,8 @@ def save_clean_gif(
         options = {"disposal": 2, "transparency": 255}
     if not prepared:
         raise ValueError("at least one frame is required")
+    if isinstance(duration_ms, list) and len(duration_ms) != len(prepared):
+        raise ValueError("duration_ms length must match the frame count")
     output_path.parent.mkdir(parents=True, exist_ok=True)
     prepared[0].save(
         output_path,
@@ -113,7 +116,7 @@ def gif_report(path: Path) -> dict[str, object]:
             "path": str(path),
             "frames": len(delays),
             "delay_ticks": delays,
-            "loop": image.info.get("loop", 0),
+            "loop": image.info.get("loop"),
             "transparent": all(min_alpha < 255 for min_alpha, _max_alpha in alpha_extrema),
             "disposal": disposal,
         }

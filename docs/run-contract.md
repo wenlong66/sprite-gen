@@ -55,6 +55,7 @@ canonical files, not hidden imports.
 | GIF export | `compose_sprite_gif.py`, `gif_utils.py` | selected frames | clean transparent GIF into `exports/` |
 | Selected cycle | `compose_selected_cycle.py` | `curation.json` / `--frames` | selected-cycle manifest + QA |
 | Inverse / import | `unpack_atlas_run.py` | finished atlas **or** `--pngs-dir` | curator-ready run dir (§4) |
+| GIF import | `sprite-gen import-gif` | animated GIF + optional accepted base | new run with complete RGBA frames, native `states.<state>.durations_ms`, source archive and visual-review report ([skill](../skills/gif2dsprite/SKILL.md)) |
 | Export stills | `export_curated_pngs.py` | curated `frames/` | named PNGs under `curated/` |
 | Chroma guard | `scripts/dev/check_visible_magenta.py` | screenshot | leakage warning |
 
@@ -74,6 +75,15 @@ inspect/score/loop split) are described in
 is the explanation.
 
 ## 2. Run-dir folder contract
+
+GIF imports use the same frame/curation/export contract. Their request state owns
+`durations_ms`, one positive integer per physical source frame, instead of FPS-based
+timing. Selection and clones inherit source durations; the composed manifest derives
+playback durations. `gif-source.json` preserves import facts and the original GIF
+under `source/` remains unchanged. Existing rows without this field keep their
+uniform-FPS behavior. Native timing is displayed in curation; its FPS editor and
+fixed-rate video/comparison capture are unavailable, so they cannot silently change
+the imported rhythm.
 
 **One worker owns exactly one character folder.** This is the canonical tree — do
 not restate it elsewhere; point here.

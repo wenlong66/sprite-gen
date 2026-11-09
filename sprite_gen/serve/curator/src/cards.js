@@ -32,7 +32,7 @@ function renderState(state, replaceEl) {
   head.className = "state-head";
   head.innerHTML =
     `<span class="name">${escapeHtml(state.name)}</span>` +
-    `<span class="meta">${state.requestFrames} ${t("frames")} · ${state.fps}fps · ${state.loop ? t("loop") : t("nonLoop")} · ${t("cellPx")} ${run.cell.width}x${run.cell.height}px</span>` +
+    `<span class="meta">${state.requestFrames} ${t("frames")} · ${state.durationsMs ? state.durationsMs.reduce((a, b) => a + b, 0) + "ms" : state.fps + "fps"} · ${state.loop ? t("loop") : t("nonLoop")} · ${t("cellPx")} ${run.cell.width}x${run.cell.height}px</span>` +
     (state.action ? `<span class="action">${escapeHtml(state.action)}</span>` : "") +
     (state.extractOk ? "" : `<span class="state-warn">${t("extractFail")}</span>`) +
     (anchorStates.has(state.name) ? `<span class="anchor-badge" data-tip="${t("tDirAnchorBadge")}">${t("dirAnchorBadge")}</span>` : "");
@@ -514,7 +514,7 @@ function startPreview(state) {
     if (!root.isConnected) return; // 섹션이 교체/제거되면 이 루프는 은퇴
     const play = playList(state.name);
     if (pv.playing && play.length) {
-      const interval = 1000 / Math.max(0.1, state.fps * pv.speed);
+      const interval = frameDurationMs(state.name, play[pv.cursor % play.length]) / pv.speed;
       if (ts - last >= interval) {
         last = ts;
         pv.cursor = (pv.cursor + 1) % play.length;

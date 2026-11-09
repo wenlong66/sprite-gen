@@ -535,6 +535,9 @@ function openCompare() {
     const wasPlaying = anim.playing;
     try {
       const included = [...state.include];
+      if (included.some((name) => run.states.find((s) => s.name === name)?.durationsMs)) {
+        throw new Error("Comparison capture uses a fixed sample rate. Export each row as GIF to preserve its native timing.");
+      }
       // **파일을 만들기 전에** 멈춘다. `render()` 는 프리뷰 래퍼를 쓰는데, 그 래퍼는
       // 거부를 잡아 워프하지 않은 원본을 돌려준다 — 화면에선 옳은 행동(알림 + 원본)이지만
       // 여기서는 그 결과가 그대로 `toDataURL` 되어 **호흡이 빠진 파일**이 사용자 손에
@@ -607,10 +610,10 @@ function openCompare() {
     if (anim.playing) {
       let dirty = false;
       for (const name of state.include) {
-        const st = run.states.find((s) => s.name === name);
-        const fps = (st && st.fps) || 6;
+        const play = playList(name);
+        const interval = frameDurationMs(name, play[(anim.cursors[name] || 0) % play.length]);
         if (!anim.last[name]) anim.last[name] = ts;
-        if (ts - anim.last[name] >= 1000 / Math.max(0.1, fps)) {
+        if (ts - anim.last[name] >= interval) {
           anim.last[name] = ts;
           anim.cursors[name] = (anim.cursors[name] || 0) + 1;
           dirty = true;
