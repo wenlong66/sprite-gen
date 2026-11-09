@@ -40,6 +40,7 @@ import sys
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from collections.abc import Collection
 from typing import Any
 
 from PIL import Image
@@ -153,6 +154,10 @@ SIZE_HOLD_MODES = ("auto", "off")
 # the kept one stale, so writing the cycle removes it: an alignment after a re-cut (say, once RIFE
 # is installed and the jumps are repaired) reads the new cut, not the old one.
 CYCLE_SOURCE_DIR = "cycle.source"
+# A loop whose held cells the cut made again is cut again with the fill off, so an alignment aligns the cut as filmed, and
+# that cut is kept as `cycle.source/` (`keep_unfilled`): by `video-loop` while the clip's frames are there, or else by
+# `video-cycle-align`. The folder beside the loop it is cut in, removed once it is kept.
+CUT_AGAIN_DIR = ".cycle.source.cut"
 # The strip as it was before `video-sway` (the Sway layer; old name `video-follow`) moved a region of it;
 # a later sway reads from it, and a new cut or alignment removes it (docs/video-pipeline.md section 6).
 # Its name, and the key the sway's record is written under, stay `follow` in this release: a consumer reads
@@ -862,6 +867,9 @@ def build_strip(frames: list[Image.Image], *, max_cells: int = STRIP_MAX_CELLS, 
         "body_ref": ("cut-first-frame" if standing_frame else "first-frame") if standing_src is not None else "tallest-grounded",
         "scale": round(scale, 4),
         "delay_ms": round(1000 * cycle_seconds / len(cells), 2),
+        # The cells' own rate, unrounded to six places: `delay_ms` rounded to hundredths of a millisecond (41.67 for
+        # 24 fps) drifts a scene a frame late on every cell (the asset loader reads `fps` first).
+        "fps": round(len(cells) / cycle_seconds, 6),
         "cycle_frames": L,
         "cycle_seconds": round(cycle_seconds, 4),
         "subsampled": L > cap,
@@ -995,19 +1003,21 @@ def refuse(target: Path, out_dir: Path, name: str, report: dict[str, Any], *, cu
     write_loop_report(target, report)
 
 
+def _finite(value: Any) -> Any:
+    """`value` as the report holds it: a ratio that is not finite (a zero-motion one) as None."""
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _finite(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_finite(item) for item in value]
+    return value
+
+
 def write_loop_report(target: Path, payload: dict[str, Any]) -> None:
     """Strict JSON, including refusals with undefined (zero-motion) ratios."""
-    def finite(value: Any) -> Any:
-        if isinstance(value, float) and not math.isfinite(value):
-            return None
-        if isinstance(value, dict):
-            return {key: finite(item) for key, item in value.items()}
-        if isinstance(value, (list, tuple)):
-            return [finite(item) for item in value]
-        return value
-
     target.parent.mkdir(parents=True, exist_ok=True)
-    atomic_write_text(target, json.dumps(finite(payload), ensure_ascii=False, indent=2, allow_nan=False) + "\n")
+    atomic_write_text(target, json.dumps(_finite(payload), ensure_ascii=False, indent=2, allow_nan=False) + "\n")
 
 
 def resampled_cells(strip: Image.Image, meta: dict[str, Any], idx: list[int], length: int) -> list[Image.Image]:
@@ -1413,14 +1423,15 @@ def _located(interpolate: rife_mod.Interpolate | None, made_by: list[dict[str, s
     return lazy
 
 
-def _fill_held(frames: list[Image.Image], interpolate: rife_mod.Interpolate | None, *, ring: bool, same: list[bool],
-               mode: str, hold: int | None) -> tuple[list[Image.Image], dict[str, Any]]:
-    """`held_fill.fill` on the cut, with RIFE located only once a frame is to be made: a cut with no held cell, or only
-    runs kept as filmed, needs no binary. The record names the interpolator that made the frames. A frame to make and no
-    RIFE installed: the held cells are delivered as filmed, and the record says which and how to install it (`unmade`)."""
+def fill_cut(frames: list[Image.Image], interpolate: rife_mod.Interpolate | None, *, ring: bool, same: list[bool] | None,
+               mode: str, hold: int | None, wrap: bool | None = None, refuse: Collection[str] | None = None) -> tuple[list[Image.Image], dict[str, Any]]:
+    """`held_fill.fill` on the cut (`refuse` the faults a frame made is refused for, every one where None), with RIFE
+    located only once a frame is to be made: a cut with no held cell, or only runs kept as filmed, needs no binary. The
+    record names the interpolator that made the frames. A frame to make and no RIFE installed: the held cells are
+    delivered as filmed, and the record says which and how to install it (`unmade`)."""
     made_by: list[dict[str, str]] = []
     lazy = _located(interpolate, made_by)
-    asked = partial(held_fill_mod.fill, ring=ring, same=same, mode=mode, hold=hold)
+    asked = partial(held_fill_mod.fill, ring=ring, same=same, mode=mode, hold=hold, wrap=wrap, refuse=refuse)
     try:
         frames, record = asked(frames, lazy)
     except rife_mod.RifeNotInstalled as exc:
@@ -1431,6 +1442,33 @@ def _fill_held(frames: list[Image.Image], interpolate: rife_mod.Interpolate | No
     if record["made"]:
         record["interpolator"] = {**made_by[0], **lazy.counts()} if made_by else {"kind": "injected"}
     return frames, record
+
+
+def _playing_hold(cells: list[Image.Image]) -> int | None:
+    """The hold of a loop's cells as they play (`drawing_firsts`), None for cells with no body to read."""
+    try:
+        return drawing_firsts(cells)[1]
+    except ValueError:
+        return None
+
+
+def _fill_again(frames: list[Image.Image], interpolate: rife_mod.Interpolate | None, record: dict[str, Any], *, ring: bool,
+                mode: str, skip: list[int]) -> tuple[list[Image.Image], dict[str, Any] | None]:
+    """`held_fill.again` on the cut, with RIFE located only once a frame is to be made, as `fill_cut` does, the hold of
+    the cut as it now plays read between its drawings as the seam and the step gate read it (`drawing_firsts`)."""
+    made_by: list[dict[str, str]] = []
+    lazy = _located(interpolate, made_by)
+    asked = partial(held_fill_mod.again, record=record, ring=ring, mode=mode, skip=skip, hold=_playing_hold)
+    try:
+        frames, again = asked(frames, lazy)
+    except rife_mod.RifeNotInstalled as exc:
+        frames, again = asked(frames, None)
+        if again is not None and "unmade" in again:
+            again["unmade"].update(why="RIFE is not installed", rife=str(exc), install=rife_mod.install_command())
+        return frames, again
+    if again is not None and again["made"]:
+        again["interpolator"] = {**made_by[0], **lazy.counts()} if made_by else {"kind": "injected"}
+    return frames, again
 
 
 def _upsample(frames: list[Image.Image], interpolate: rife_mod.Interpolate | None, *, ring: bool, fps: float,
@@ -1483,7 +1521,7 @@ def _air_lines(name: str, record: dict[str, Any]) -> list[str]:
             "motion\")"] if again else []
 
 
-def _fill_lines(record: dict[str, Any]) -> list[str]:
+def fill_lines(record: dict[str, Any]) -> list[str]:
     """What became of the cut's held cells, in words (`video-loop: warning:` lines): the cells left for want of RIFE, the
     runs a frame between was refused for, the frames made to look at. A run kept as the motion's own says nothing."""
     lines = []
@@ -1497,6 +1535,10 @@ def _fill_lines(record: dict[str, Any]) -> list[str]:
             last = run["start"] + run["length"] - 1
             lines.append(f"held cells {run['start']}-{last} kept as filmed: {run['why']} — look at them in the loop, or film "
                          "it again (docs/loop-repair.md section 7)")
+    wrap = record["before"].get("wrap")
+    if wrap and wrap.get("faults") is not None and not any(r.get("wrap") for r in record["before"]["held_runs"]):
+        lines.append(f"cell {wrap['start']}, the loop's last, shows its first cell again across the wrap and was kept as filmed: "
+                     f"{wrap['why']} — look at the wrap in the loop, or cut it a cell shorter (docs/loop-repair.md section 7)")
     for made in record.get("frames", []):
         if made["look"]:
             a, b = made["between"]
@@ -1505,7 +1547,13 @@ def _fill_lines(record: dict[str, Any]) -> list[str]:
     return lines
 
 
-def _out_fps_lines(record: dict[str, Any]) -> list[str]:
+def _lifetime_lines(record: dict[str, Any]) -> list[str]:
+    """The held runs of an effect's lifetime, played as filmed (no frame between is made for one), in words."""
+    return [f"cells {r['start']}-{r['start'] + r['length'] - 1} of the effect's lifetime show one picture — played as filmed, "
+            "an effect's lifetime is not filled (docs/loop-repair.md section 7)" for r in record["held_runs"]]
+
+
+def out_fps_lines(record: dict[str, Any]) -> list[str]:
     """What became of a rate asked above the clip's (`--out-fps`), in words: not met for want of RIFE, or cells where no
     frame between was made and the frame beside them is shown again."""
     if not record["applied"]:
@@ -2375,6 +2423,82 @@ def _cell_record(strip_bytes: bytes, cells: list[Image.Image], *, start: int, le
         for k, cell in ((frame(c), cell) for c, cell in zip(samples, cells))]}
 
 
+def cut_again(report: dict[str, Any], out_dir: Path, *, report_path: Path, **asked: Any) -> dict[str, Any]:
+    """The cut `report` records made again from its frames into `out_dir`, as it was asked (`cut_args`), but for what
+    `asked` changes (`fill_held="off"`: the cut as filmed for an alignment's frames). ValueError where it cannot be: a
+    report from before `cut_args` was recorded, or frames no longer where it read them."""
+    args = report.get("cut_args")
+    if not isinstance(args, dict):
+        raise ValueError("its report records no cut_args (cut before sprite-gen recorded what a cut was asked with)")
+    frames_dir = Path(str(report.get("frames_dir", "")))
+    if not frames_dir.is_dir():
+        raise ValueError(f"its frames are no longer at {frames_dir}")
+    kw = {**args, **asked}
+    regions = kw.pop("anchor_regions", None)
+    contacts = kw.pop("contacts", None)
+    return run_loop(frames_dir, out_dir, report_path=report_path, anchor_regions=[tuple(r) for r in regions] if regions else None,
+                    contacts=list(contacts) if contacts else None, **kw)
+
+
+def filled(meta: dict[str, Any]) -> bool:
+    """Whether a cut's held cells were made again (`held_fill.made`, or `made` of the read after its repair), as its strip
+    record (`<name>.strip.json`) says."""
+    held = meta.get("held_fill") or {}
+    return bool(held.get("made") or (held.get("again") or {}).get("made"))
+
+
+def keep_unfilled(report: dict[str, Any], out_dir: Path, name: str, cut: dict[str, Any], **asked: Any) -> dict[str, Any]:
+    """The cut `report` records made again from its frames with the fill off (`cut_again`, `asked` passed on), kept beside
+    the loop in `out_dir` as `cycle.source/` — its frames, its strip and its strip record (`<name>.strip.json`), the cut
+    as filmed that `video-cycle-align` aligns. `cut` is the loop's cut (its strip record's `cycle_drawings`), whose frames
+    of the clip the cut again must take too. What the cut again returned; ValueError naming why it could not be
+    (`cut_again`'s, a cut again that failed or took other frames), `cycle.source/` then left as it was."""
+    work = out_dir / CUT_AGAIN_DIR
+    shutil.rmtree(work, ignore_errors=True)
+    try:
+        try:
+            again = cut_again(report, work, report_path=work / "cut.loop.report.json", fill_held="off", **asked)
+        except SystemExit as exc:
+            raise ValueError(f"cutting it again with the fill off failed: {exc}") from None
+        record = f"{name}.strip.json"
+        now = json.loads((work / record).read_text(encoding="utf-8")).get("cycle_drawings") or {}
+        if (now.get("start"), now.get("length")) != (cut.get("start"), cut.get("length")):
+            raise ValueError(f"cut again with the fill off it took frames {now.get('start')}+{now.get('length')}, not "
+                             f"{cut.get('start')}+{cut.get('length')}")
+        # The strip and its record go beside its frames first, so `cycle.source/` appears whole or not at all.
+        kept = work / "cycle"
+        shutil.copyfile(work / record, kept / record)
+        shutil.copyfile(work / f"{name}.strip.png", kept / f"{name}.strip.png")
+        source = out_dir / CYCLE_SOURCE_DIR
+        shutil.rmtree(source, ignore_errors=True)
+        kept.rename(source)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    return again
+
+
+def _keep_unfilled_here(report_base: dict[str, Any], frames_dir: Path, out_dir: Path, name: str,
+                        strip_meta: dict[str, Any], interpolate: rife_mod.Interpolate | None) -> dict[str, Any]:
+    """A loop whose held cells this cut made again, cut again with the fill off while the clip's frames are here and kept
+    as `cycle.source/` (`keep_unfilled`, from what this cut was asked as its report records it): an alignment of it then
+    aligns the cut as filmed without the clip's frames. Its record (the report's `cycle_source`): kept, with the cells of
+    the cut with the fill off and the cells made before; or not kept and why, said in a warning."""
+    print(f"video-loop: {name}: its held cells were made again, so it is cut again with the fill off and that cut is kept "
+          f"as {CYCLE_SOURCE_DIR}/ for video-cycle-align; the lines below until it is kept are that cut's", file=sys.stderr)
+    # What the cut was asked, as its report holds it (`write_loop_report`): what an alignment reads to cut it again.
+    asked = json.loads(json.dumps(_finite({"cut_args": report_base["cut_args"], "frames_dir": str(frames_dir)})))
+    try:
+        again = keep_unfilled(asked, out_dir, name, strip_meta["cycle_drawings"], interpolate=interpolate)
+    except ValueError as exc:
+        print(f"video-loop: warning: {name}: its held cells were made again and no cut with the fill off is kept beside it "
+              f"({exc}): video-cycle-align cuts it again from the clip's frames, or stops on it without them "
+              "(docs/loop-repair.md section 7)", file=sys.stderr)
+        return {"kept": False, "why": str(exc)}
+    print(f"video-loop: {name}: the cut with the fill off is kept as {CYCLE_SOURCE_DIR}/", file=sys.stderr)
+    return {"kept": True, "dir": CYCLE_SOURCE_DIR, "fill_held": "off", "cells": again["strip"]["cycle_frames"],
+            "made_before": strip_meta["held_fill"]["made"]}
+
+
 def run_loop(frames_dir: Path, out_dir: Path, **options: Any) -> dict[str, Any]:
     """Cut the loop (`_cut_loop`, which takes the options). The frames a size hold or the gait fallback scales back
     are written in folders of the run's own (`_Scratch`), removed however the run ends."""
@@ -2550,6 +2674,17 @@ def _cut_loop(
         # (sprite_gen/video/held.py) — over the whole clip as keyed, before any cut. A record for
         # `video-cycle-align`, which says when a held clip stretched to the set's length must be filmed again.
         "drawings": held_mod.measure(clip_steps, fps=fps),
+        # What the cut was asked with, the frames read from `frames_dir`: `video-cycle-align` cuts a loop whose held cells
+        # were made again once more with the fill off, for the frames it aligns (CUT_ARGS, `cut_again`).
+        "cut_args": {"fps": fps, "state": state, "min_len": min_len, "max_len": max_len, "n_out": n_out, "seam_max": seam_max,
+                     "name": name, "cycle_mode": cycle_mode, "gif_fps": gif_fps, "start": start, "length": length,
+                     "strip_height": strip_height, "body_height": body_height, "anchor": anchor,
+                     "anchor_regions": [list(r) for r in anchor_regions] if anchor_regions is not None else None,
+                     "repair": repair, "facing": facing, "jolt_max": jolt_max, "head_step_max": head_step_max,
+                     "size_hold": size_hold, "steps": steps, "overlap_wrap": overlap_wrap, "wrap_blend": wrap_blend,
+                     "unfixed": unfixed, "seam_pop_max": seam_pop_max, "view": view, "body_turn": body_turn,
+                     "fill_held": fill_held, "out_fps": out_fps, "air_retime": air_retime, "meters_per_px": meters_per_px,
+                     "contacts": list(contacts) if contacts is not None else None},
     }
     if lead is not None:
         # `search_from`: the first clip frame the search read (0: the whole clip, or a cut the caller named).
@@ -2792,9 +2927,10 @@ def _cut_loop(
             im, d = drop_specks(im, alpha_over=16, diagonal=False, apart=0)
             specks += d
         frames.append(im)
-    # Each step of the cut as filmed, read for a picture shown again (held_fill.same_steps): before an anchor moves each
-    # frame of a pair apart.
+    # Each step of the cut as filmed, read for a picture shown again (held_fill.same_steps), and the step across a loop's
+    # wrap (its last cell showing its first again): before an anchor moves each frame of a pair apart.
     same = held_fill_mod.same_steps(frames)
+    filmed_wrap = held_fill_mod.wrap_same(frames)
 
     if prof.gait:
         report_base["gait"] = evidence_mod.gait_observation(frames, cycle)
@@ -2834,6 +2970,8 @@ def _cut_loop(
     if cycle["kind"] == "lifetime":
         report_base["held_fill"] = {"mode": fill_held, "why": "an effect's lifetime is played as filmed", "made": [],
                                     "before": held_fill_mod.reading(same), **held_fill_mod.reading(same)}
+        for line in _lifetime_lines(report_base["held_fill"]):
+            print(f"video-loop: warning: {name}: {line}", file=sys.stderr)
     else:
         # The cells that show the picture before them again, made between the poses beside them (docs/loop-repair.md
         # section 7), on the cut as anchored, before anything reads its flow or its wrap. A cut drawn on twos or threes
@@ -2841,7 +2979,8 @@ def _cut_loop(
         cut_drawings = report_base["cycle_drawings"]
         hold = cut_drawings["hold"] if cut_drawings["hold"] is not None else report_base["drawings"]["hold"]
         try:
-            frames, report_base["held_fill"] = _fill_held(frames, interpolate, ring=ring, same=same, mode=fill_held, hold=hold)
+            frames, report_base["held_fill"] = fill_cut(frames, interpolate, ring=ring, same=same, mode=fill_held, hold=hold,
+                                                          wrap=filmed_wrap)
         except (ValueError, rife_mod.RifeUnavailable) as exc:
             error = (f"video-loop: {exc}; the cut shows a picture again and the frames between are to be made — fix RIFE, "
                      "or pass --fill-held off to cut it as filmed (docs/loop-repair.md section 7)")
@@ -2849,7 +2988,7 @@ def _cut_loop(
             raise SystemExit(error) from exc
         if report_base["held_fill"]["made"]:
             report_base["seam_measurement"] = "rendered-cells"
-        for line in _fill_lines(report_base["held_fill"]):
+        for line in fill_lines(report_base["held_fill"]):
             print(f"video-loop: warning: {name}: {line}", file=sys.stderr)
     if prof.gait:
         # The ghost screen of the cut as filmed (docs/loop-repair.md section 4), read before the jump repair: each
@@ -3030,6 +3169,24 @@ def _cut_loop(
         if not report_base["ghost_screen"]["reads"]:
             print(f"video-loop: warning: the ghost screen does not read this cut — {report_base['ghost_screen']['why']}; no frame "
                   "of it is named a ghost, here or in video-cycle-align, so look at cycle/ (docs/loop-repair.md)", file=sys.stderr)
+    if cycle["kind"] != "lifetime":
+        # The cut read again once the repairs have run (docs/loop-repair.md section 7): a run of cells showing one picture
+        # the fill did not read — one a repair left — is made as the fill makes one; a filmed ghost given way to the frame
+        # beside it, its frame between refused, is not tried again (its warning above says so).
+        given = [g["frame"] for g in report_base.get("ghost_given_way") or []]
+        try:
+            frames, read_again = _fill_again(frames, interpolate, report_base["held_fill"], ring=ring, mode=fill_held, skip=given)
+        except (ValueError, rife_mod.RifeUnavailable) as exc:
+            error = (f"video-loop: {exc}; the cut shows a picture again after its repair and the frames between are to be "
+                     "made — fix RIFE, or pass --fill-held off to cut it as filmed (docs/loop-repair.md section 7)")
+            refuse(target, out_dir, name, {**report_base, "status": "failed", "error": error, "cycle": cycle})
+            raise SystemExit(error) from exc
+        if read_again is not None:
+            report_base["held_fill"]["again"] = read_again
+            if read_again["made"]:
+                report_base["seam_measurement"] = "rendered-cells"
+            for line in fill_lines(read_again):
+                print(f"video-loop: warning: {name}: read again after the repair: {line}", file=sys.stderr)
     held_record = report_base["held_fill"]
     upsampled = None
     # A cut played once carries its root motion (docs/video-pipeline.md, "Root motion"), read against the clip's floor.
@@ -3073,7 +3230,7 @@ def _cut_loop(
                      "without --out-fps (docs/loop-repair.md section 7)")
             refuse(target, out_dir, name, {**report_base, "status": "failed", "error": error, "cycle": cycle})
             raise SystemExit(error) from exc
-        for line in _out_fps_lines(held_record["out_fps"]):
+        for line in out_fps_lines(held_record["out_fps"]):
             print(f"video-loop: warning: {name}: {line}", file=sys.stderr)
         if held_record["out_fps"]["applied"]:
             upsampled = held_record["out_fps"]["times"]
@@ -3082,8 +3239,8 @@ def _cut_loop(
             if not ring:
                 cycle_seconds = len(frames) / out_fps  # first to last frame as filmed, each cell 1/out_fps
             n_out = min(n_asked, len(frames))
-    # The cut as delivered, read again: its poses over its cells.
-    held_record.update(held_fill_mod.reading(held_fill_mod.same_steps(frames)))
+    # The cut as delivered, read again: its poses over its cells (a loop's wrap read too).
+    held_record.update(held_fill_mod.reading(held_fill_mod.same_steps(frames), wrap=ring and held_fill_mod.wrap_same(frames)))
     C = len(frames)  # the cells delivered: the cut's frames, or more at --out-fps
     cycle_dir.mkdir(parents=True, exist_ok=True)
     for old in cycle_dir.glob("frame-*.png"):
@@ -3145,6 +3302,11 @@ def _cut_loop(
         strip_meta["clip_feet"] = report_base["clip_feet"]
     # The cut's held cells, what became of them, and its poses over its cells (docs/loop-repair.md section 7).
     strip_meta["held_fill"] = held_fill_mod.public(held_record)
+    # The holds the motion means, as cells of the strip (held_fill.intended): what a reader of it — `inspect-holds`, a
+    # scene — does not take for a picture shown again by mistake.
+    strip_meta["holds"] = held_fill_mod.strip_holds(
+        held_fill_mod.intended(held_record) + (held_fill_mod.intended(held_record["again"]) if held_record.get("again") else []),
+        strip_meta["sample_indices"], upsampled)
     if cycle["kind"] in root_motion_mod.KINDS:
         # Where the body is in each cell, what each touches and the air (docs/video-pipeline.md, "Root motion"): read on
         # the cells' frames as delivered, each at its time as it plays.
@@ -3348,6 +3510,10 @@ def _cut_loop(
         # The GIF or WebP could not be written (no img2webp) or failed its verification: nothing of the cut is handed over.
         refuse(target, out_dir, name, {**report_base, "status": "failed", "error": str(exc), "cycle": cycle}, cut_written=True)
         raise
+    # A loop whose held cells were made again: the cut as filmed an alignment aligns, kept beside it while the clip's
+    # frames are here (docs/loop-repair.md section 7). A cut at --out-fps is not aligned, nor one played once.
+    if ring and out_fps is None and filled(strip_meta):
+        report_base["cycle_source"] = _keep_unfilled_here(report_base, frames_dir, out_dir, name, strip_meta, interpolate)
 
     payload = {
         **report_base,
@@ -3461,7 +3627,9 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
                              f"{held_fill_mod.HOLD_MAX} cells, the opening or closing pose of a cut played once, a loop's last "
                              "cells and a cut drawn on twos or threes kept as filmed; off cuts them as filmed. Either way the report and the strip metadata record "
                              "the held runs and the poses over the cells (`held_fill`, docs/loop-repair.md section 7); with no "
-                             "RIFE installed the cells are shown as filmed, with a warning")
+                             "RIFE installed the cells are shown as filmed, with a warning. A loop at the clip's rate whose "
+                             f"cells auto made again is cut again with the fill off and that cut is kept as {CYCLE_SOURCE_DIR}/ "
+                             "for video-cycle-align, which then needs no clip's frames (the report's `cycle_source`)")
     parser.add_argument("--out-fps", type=float, default=None,
                         help="give the cut at this rate, above the clip's (--fps): every cell at its own time, made by RIFE "
                              "between the frames beside it — never a frame shown again. A loop keeps its cycle's seconds, a "
@@ -3585,6 +3753,8 @@ def run(**kwargs: object) -> int:
                             "held_runs": held["held_runs"], "made": held["made"],
                             **({"unmade": held["unmade"]["cells"]} if "unmade" in held else {}),
                             **({"out_fps": {k: held["out_fps"][k] for k in ("asked", "applied", "cells")}} if "out_fps" in held else {})}
+    if "cycle_source" in payload:
+        summary["cycle_source"] = payload["cycle_source"]
     if "root_motion" in payload:
         # Each air of a cut played once, as a person is told it: its seconds and its apex.
         summary["air"] = root_motion_mod.said(payload["root_motion"])

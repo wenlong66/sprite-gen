@@ -53,9 +53,11 @@ and stay: the outline's loose pixels one transparent pixel off, a shadow drawn u
 shoe's part the matte cut loose. How many each frame lost is in its report row (`specks`).
 
 A **plate** painted into the canvas (`video-canvas --prop-plate`, a low wall for the subject to clear) is taken out of
-every keyed frame of a run that passed: `--prop-plate` names that canvas's report, whose box is the plate's
-(`prop_plate.read`), and the erase runs on the frames before they are handed over (`prop_plate.erase`; the report's
-`prop_plate`). A refused run's frames keep it.
+every keyed frame of a run that passed: `--prop-plate` names that canvas's report, whose box is where the plate is
+searched for in the first frame (`prop_plate.read`). It is found in each frame as decoded, where the camera carried it
+or the subject turned it (`prop_plate.find`), its place is left out of what the edge pass learns the subject's palette
+from (`prop_plate.not_subject`), and the erase runs on the frames before they are handed over (`prop_plate.erase`; the
+report's `prop_plate`, a row a frame). A refused run's frames keep it.
 """
 
 from __future__ import annotations
@@ -67,7 +69,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PIL import Image
 
@@ -89,6 +91,7 @@ EDGE_ROWS = 4  # rows/cols inspected at each edge
 # from is the evidence: if the still carries (almost) no key-coloured material, every
 # key tint in the clip was painted by the model and is spill.
 SPILL_MODES = ("auto", "small", "full")
+KEYS_READ = ("green", "magenta", "white", "brightness")  # what a clip's frames are keyed on, where `video-chain` compares them (brightness: no key, `--alpha-mode brightness`)
 SPILL_FULL_FRACTION = 1.0  # every tinted cluster is spill, whatever its size
 SPILL_FULL_MIN_TINT = _SPILL_FULL_MIN_TINT  # ... and whatever its strength (see extract.py)
 SPILL_REFERENCE_MAX = 0.005  # the still's own key material ≤ the engine's small-cluster share → full
@@ -375,12 +378,12 @@ def _reference_window(reference: Path, key: str) -> tuple[str, Image.Image | Non
     still is kept in the mode it was decoded in and read a band of rows at a time; only the
     window is converted to RGBA, and the full-size image is released before it is keyed.
     """
-    from sprite_gen.frames.cutout import KEY_TARGETS, _EXTRACT_KEY_THRESHOLD, _corner_average, _detect_key_kind
+    from sprite_gen.frames.cutout import KEY_TARGETS, _EXTRACT_KEY_THRESHOLD
     from sprite_gen.frames.extract import detect_background_key_rgb, subject_window
 
     image = Image.open(reference)
     image.load()
-    kind = _detect_key_kind(_corner_average(image)) if key == "auto" else key
+    kind = key_kind(image, key)
     if kind not in ("green", "magenta"):
         return kind, None, None, {}
     target = KEY_TARGETS[kind]
@@ -396,6 +399,13 @@ def _reference_window(reference: Path, key: str) -> tuple[str, Image.Image | Non
         window = Image.fromarray(np.ascontiguousarray(np.asarray(window)[::stride, ::stride]))
         facts["reference_stride"] = stride
     return kind, window, painted, facts
+
+
+def key_kind(image: Image.Image, key: str) -> str:
+    """The key a frame of a clip is keyed on: `key`, or what its corners read as where that is `auto`."""
+    from sprite_gen.frames.cutout import _corner_average, _detect_key_kind
+
+    return _detect_key_kind(_corner_average(image)) if key == "auto" else key
 
 
 def decide_spill(reference: Path, key: str) -> dict[str, Any]:
@@ -476,7 +486,8 @@ def key_frames(
     """Key `raw_files` into `keyed_dir` and read their edges; the report. The frames are keyed in a working folder
     beside it and handed over as `keyed_dir` when the run passes; a run that does not pass leaves them as
     `refused_dir(keyed_dir)` and no `keyed_dir`. A refusal raises `KeyingRefused`, carrying the report. A `plate`
-    (`prop_plate.read`) is erased from the frames of a run that passed before they are handed over."""
+    (`prop_plate.read`) is found in each frame (`prop_plate.find`), left out of the edge pass's palette, and erased from
+    the frames of a run that passed before they are handed over."""
     from . import effect
     if alpha_mode not in effect.ALPHA_MODES:
         raise SystemExit(f"video-frames: unknown --alpha-mode {alpha_mode!r}")
@@ -488,11 +499,19 @@ def key_frames(
         raise SystemExit(f"video-frames: unknown --decontam {decontam!r}; expected one of {', '.join(DECONTAM_MODES)}")
     work = _withdraw(keyed_dir)
     try:
+        found = plate_mod.find(raw_files, plate) if plate is not None else None
+        not_subject = None
+        if found is not None:
+            with Image.open(raw_files[0]) as first:
+                size = first.size  # one size for every frame of a clip
+
+            def not_subject(k: int) -> np.ndarray | None:
+                return plate_mod.not_subject(found[k], size)
         report = (effect.key_frames(raw_files, work) if alpha_mode == "brightness" else
                   _key_chroma(raw_files, work, key=key, check_edges=check_edges, spill=spill, allow_subject=allow_subject,
-                              decontam=decontam))
-        if plate is not None:
-            report["prop_plate"] = plate_mod.erase([work / f.name for f in raw_files], plate)
+                              decontam=decontam, not_subject=not_subject))
+        if found is not None:
+            report["prop_plate"] = plate_mod.erase([work / f.name for f in raw_files], raw_files, found, plate)
     except BaseException:
         shutil.rmtree(refused_dir(keyed_dir), ignore_errors=True)
         work.rename(refused_dir(keyed_dir))
@@ -505,7 +524,9 @@ def key_frames(
 
 
 def _key_chroma(raw_files: list[Path], keyed_dir: Path, *, key: str, check_edges: bool, spill: str, allow_subject: bool,
-                decontam: str) -> dict[str, Any]:
+                decontam: str, not_subject: Callable[[int], np.ndarray | None] | None = None) -> dict[str, Any]:
+    # `not_subject(k)`: the pixels of frame k that are not the subject's (a prop plate's place), which the edge pass's
+    # palette is learned without on the frame it is learned on
     clip_palette: dict[str, Any] | None = None
     clip_history: dict[str, Any] = {}  # the last frame's calls, in clip order
     decontam_first: dict[str, Any] | None = None
@@ -557,9 +578,11 @@ def _key_chroma(raw_files: list[Path], keyed_dir: Path, *, key: str, check_edges
 
     for k, src in enumerate(raw_files):
         dst = keyed_dir / src.name
+        learn_without = not_subject(k) if not_subject is not None and decontam != OFF and clip_palette is None else None
         stats = cutout(src, dst, key=key, spill_max_fraction=spill_max, spill_min_tint=spill_tint,
                        spill_require_hue=spill == "full", decontam=decontam, decontam_fit=DECONTAM_FIT,
                        decontam_palette=clip_palette, decontam_edge_band=EDGE_ROWS, decontam_history=clip_history,
+                       decontam_not_subject=learn_without,
                        # one exact key for the whole clip: an unrecognised background is refused below and its
                        # still normalized by `video-canvas` (docs/chroma-alpha.md "The measured background")
                        measure_unrecognised=False, refuse_empty=False)
@@ -745,6 +768,9 @@ def run_frames(clip: Path, out_dir: Path, *, key: str, allow_edge_contact: bool,
         atomic_write_text(target, json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
         raise
     payload = {**head, "status": "passed", "keyed_dir": str(keyed_dir), "key": key, "spill": decision, **meta, **report}
+    if alpha_mode != "brightness":
+        with Image.open(files[0]) as first:
+            payload["key_read"] = key_kind(first, key)  # what it was keyed on, where `key` says only auto (`video-chain`)
     if source_manifest is not None:
         from sprite_gen.video.evidence import engine_identity
         payload["producer"] = engine_identity()
@@ -772,7 +798,7 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--source-manifest", type=Path, help="write exact clip/canvas/keyed-file digests and source timestamps (requires --reference)")
     parser.add_argument("--spill", choices=SPILL_MODES, default="small", help="small: correct only small key-tinted clusters (default); full: every key tint in the subject is spill; auto: decide from --reference")
     parser.add_argument("--reference", type=Path, help="the still the clip was made from (required by --spill auto)")
-    parser.add_argument("--prop-plate", type=Path, help="the `video-canvas --report` of a canvas painted with --prop-plate: the plate's box it holds is erased from every keyed frame (the subject crossing in front of it stays); the report's `prop_plate` says what went")
+    parser.add_argument("--prop-plate", type=Path, help="the `video-canvas --report` of a canvas painted with --prop-plate: the plate is searched for from the box it holds, found in each frame where the camera carried it or the subject turned it, and erased from every keyed frame (the subject crossing in front of it stays); the report's `prop_plate` says where it was and what went, a row a frame")
     parser.add_argument("--decontam", choices=DECONTAM_MODES, default=DECONTAM_DEFAULT, help="auto (default): re-explain key-tinted edges with the subject's own colours (one palette per clip, video fit) where it applies, the reason recorded where not (a white key, a subject with no interior; brightness alpha is off); palette: the same, failing where it cannot run; off: the matte as is")
 
 
@@ -787,6 +813,8 @@ def run(**kwargs: object) -> int:
     print(json.dumps(summary, ensure_ascii=False, indent=2))
     line = decontam_warning(payload["decontam"])
     if line:
+        print(f"video-frames: warning: {line}", file=sys.stderr)
+    for line in plate_mod.warnings(payload.get("prop_plate") or {}):
         print(f"video-frames: warning: {line}", file=sys.stderr)
     return 0
 
